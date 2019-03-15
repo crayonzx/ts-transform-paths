@@ -24,7 +24,8 @@ export function transformerFactory(
   const aliasResolver = new PathAliasResolver(context.getCompilerOptions());
 
   function visitNode(node: ts.Node): ts.Node {
-    if (!ts.isStringLiteral(node)) {
+    // In what circumstances will parent of node be undefined???
+    if (!ts.isStringLiteral(node) || !node.parent) {
       return node;
     }
     if (!isImportPath(node) && !isExportPath(node) && !isRequirePath(node)) {
