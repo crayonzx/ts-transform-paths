@@ -17,7 +17,10 @@ export function transformerFactory(
   const aliasResolver = new PathAliasResolver(context.getCompilerOptions());
 
   function visitNode(node: ts.Node): ts.Node {
-    if (!isImportPath(node)) {
+    if (!ts.isStringLiteral(node)) {
+      return node;
+    }
+    if (!isImportPath(node) && !isExportPath(node) && !isRequirePath(node)) {
       return node;
     }
 
@@ -48,10 +51,40 @@ export function transformerFactory(
   return (file: ts.SourceFile) => visitNodeAndChildren(file, context);
 }
 
-function isImportPath(node: ts.Node): node is ts.StringLiteral {
+/**
+ * e.g.
+ * - import { x } from 'path';
+ * - let y: import('path').x;
+ */
+function isImportPath(node: ts.StringLiteral) {
   return (
-    node.kind === ts.SyntaxKind.StringLiteral &&
     node.parent &&
-    node.parent.kind === ts.SyntaxKind.ImportDeclaration
+    (ts.isImportDeclaration(node.parent) ||
+      ts.isImportTypeNode(node.parent.parent))
+  );
+}
+
+/**
+ * e.g.
+ * - export { x } from 'path';
+ */
+function isExportPath(node: ts.StringLiteral) {
+  return ts.isExportDeclaration(node.parent);
+}
+
+/**
+ * e.g.
+ * - const x = require('path');
+ * - const x = import('path');
+ * - import x = require('path');
+ */
+function isRequirePath(node: ts.StringLiteral) {
+  const { parent } = node;
+  return (
+    (ts.isCallExpression(parent) &&
+      parent.arguments.length === 1 &&
+      (parent.expression.getText() === "require" ||
+        parent.expression.getText() === "import")) ||
+    ts.isExternalModuleReference(parent)
   );
 }
