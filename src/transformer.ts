@@ -4,9 +4,16 @@ import { ITransformerOptions, PathAliasResolver } from "./types";
 export default function transformer(
   program: ts.Program,
   options?: ITransformerOptions
-): ts.TransformerFactory<ts.SourceFile> {
-  return function optionsFactory(context: ts.TransformationContext) {
+): ts.CustomTransformers {
+  function optionsFactory(context: ts.TransformationContext) {
     return transformerFactory(context, options);
+  }
+
+  return {
+    before: [optionsFactory],
+    afterDeclarations: [
+      optionsFactory
+    ] as ts.CustomTransformers["afterDeclarations"]
   };
 }
 
