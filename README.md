@@ -133,3 +133,4 @@ yarn node ./index.js
 - [tsconfig-paths](https://github.com/dividab/tsconfig-paths)
 - [ts-transform-img](https://github.com/longlho/ts-transform-img)
 - [ts-transformer-keys](https://github.com/kimamula/ts-transformer-keys)
+- [@zerollup/ts-transform-paths](https://github.com/zerkalica/zerollup/tree/master/packages/ts-transform-paths)
