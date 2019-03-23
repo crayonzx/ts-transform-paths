@@ -10,7 +10,7 @@ export default function transformer(
   }
 
   return {
-    before: [optionsFactory],
+    after: [optionsFactory],
     afterDeclarations: [
       optionsFactory
     ] as ts.CustomTransformers["afterDeclarations"]
@@ -23,76 +23,86 @@ export function transformerFactory(
 ) {
   const aliasResolver = new PathAliasResolver(context.getCompilerOptions());
 
-  function visitNode(node: ts.Node): ts.Node {
-    // In what circumstances will parent of node be undefined???
-    if (!ts.isStringLiteral(node) || !node.parent) {
-      return node;
+  return (sourceFile: ts.SourceFile) => {
+    function getResolvedPathNode(node: ts.StringLiteral) {
+      const resolvedPath = aliasResolver.resolve(
+        sourceFile.fileName,
+        node.text
+      );
+      return resolvedPath !== node.text
+        ? ts.createStringLiteral(resolvedPath)
+        : null;
     }
-    if (!isImportPath(node) && !isExportPath(node) && !isRequirePath(node)) {
-      return node;
+
+    function pathReplacer(node: ts.Node): ts.Node {
+      if (ts.isStringLiteral(node)) {
+        return getResolvedPathNode(node) || node;
+      }
+      return ts.visitEachChild(node, pathReplacer, context);
     }
 
-    return ts.createStringLiteral(
-      aliasResolver.resolve(node.getSourceFile().fileName, node.text)
-    );
-  }
+    function visitor(node: ts.Node): ts.Node {
+      /**
+       * e.g.
+       * - const x = require('path');
+       * - const x = import('path');
+       */
+      if (ts.isCallExpression(node)) {
+        const arg = node.arguments[0];
+        const expression = node.expression;
+        if (
+          node.arguments.length === 1 &&
+          ts.isIdentifier(expression) &&
+          (expression.escapedText === "require" ||
+            expression.escapedText === "import") &&
+          ts.isStringLiteral(arg)
+        ) {
+          return ts.visitEachChild(node, pathReplacer, context);
+        }
+      }
 
-  function visitNodeAndChildren(
-    node: ts.SourceFile,
-    context: ts.TransformationContext
-  ): ts.SourceFile;
-  function visitNodeAndChildren(
-    node: ts.Node,
-    context: ts.TransformationContext
-  ): ts.Node;
-  function visitNodeAndChildren(
-    node: ts.Node,
-    context: ts.TransformationContext
-  ): ts.Node {
-    return ts.visitEachChild(
-      visitNode(node),
-      (childNode) => visitNodeAndChildren(childNode, context),
-      context
-    );
-  }
+      /**
+       * e.g.
+       * - import { x } from 'path';
+       */
+      if (
+        ts.isImportDeclaration(node) &&
+        ts.isStringLiteral(node.moduleSpecifier)
+      ) {
+        return ts.visitEachChild(node, pathReplacer, context);
+      }
 
-  return (file: ts.SourceFile) => visitNodeAndChildren(file, context);
-}
+      /**
+       * e.g.
+       * - export { x } from 'path';
+       */
+      if (
+        ts.isExportDeclaration(node) &&
+        node.moduleSpecifier &&
+        ts.isStringLiteral(node.moduleSpecifier)
+      ) {
+        return ts.visitEachChild(node, pathReplacer, context);
+      }
 
-/**
- * e.g.
- * - import { x } from 'path';
- * - let y: import('path').x;
- */
-function isImportPath(node: ts.StringLiteral) {
-  return (
-    node.parent &&
-    (ts.isImportDeclaration(node.parent) ||
-      ts.isImportTypeNode(node.parent.parent))
-  );
-}
+      /**
+       * e.g.
+       * - let y: import('path').x;
+       */
+      if (ts.isImportTypeNode(node)) {
+        return ts.visitEachChild(node, pathReplacer, context);
+      }
 
-/**
- * e.g.
- * - export { x } from 'path';
- */
-function isExportPath(node: ts.StringLiteral) {
-  return ts.isExportDeclaration(node.parent);
-}
+      /**
+       * e.g.
+       * - import x = require('path');
+       */
+      if (ts.isExternalModuleReference(node)) {
+        return ts.visitEachChild(node, pathReplacer, context);
+      }
 
-/**
- * e.g.
- * - const x = require('path');
- * - const x = import('path');
- * - import x = require('path');
- */
-function isRequirePath(node: ts.StringLiteral) {
-  const { parent } = node;
-  return (
-    (ts.isCallExpression(parent) &&
-      parent.arguments.length === 1 &&
-      (parent.expression.getText() === "require" ||
-        parent.expression.getText() === "import")) ||
-    ts.isExternalModuleReference(parent)
-  );
+      return ts.visitEachChild(node, visitor, context);
+    }
+
+    return ts.visitEachChild(sourceFile, visitor, context);
+  };
 }
